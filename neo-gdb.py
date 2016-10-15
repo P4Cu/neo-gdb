@@ -47,18 +47,18 @@ class NvimModule(gdb.Command):
                 suppress_module('Source')
 
     def __init__(self):
+        self.started = False
         self.file_name = None
         self.ts = None
-        self.code_window = NvimWindow()
+        self.code_window = NvimSourceWindow()
+        self.gdb_window = NvimWindow()
 
         # TODO: is it required?
-        self.gdb_window = NvimWindow()
         self.gdb_window = nvim().current.window
         # TODO: is it required?
         self.gdb_buffer = nvim().current.buffer
 
-        self.code_window.create()
-
+        # init gdb part
         gdb.Command.__init__(self, 'nvim',
                              gdb.COMMAND_USER, gdb.COMPLETE_NONE, True)
         gdb.events.cont.connect(self.on_continue)
@@ -72,6 +72,10 @@ class NvimModule(gdb.Command):
 
     def on_stop(self, _):
         print('on_stop')
+
+        if not self.started:
+            self.started = True
+            self.code_window.open()
 
         # use shorter form
         nvim().command('sign unplace 5000')
@@ -91,14 +95,12 @@ class NvimModule(gdb.Command):
             self.file_name = file_name
             self.ts = ts
 
-        current_window = nvim().current.window
-        self.code_window.focus()
-        nvim().command('edit! +' + str(current_line) + ' ' + self.file_name)
-        nvim().current.window = current_window
-        nvim().command('sign place 5000 name=GdbCurrentLine line=' + str(current_line) + ' file=' + self.file_name)
+        self.code_window.set_source(file_name, current_line)
 
     def on_exit(self, _):
         print('on_exit')
+        self.code_window.close()
+        self.started = False
 
     def define_symbols(self):
         nvim().command('sign define GdbCurrentLine text=⇒')
@@ -110,18 +112,34 @@ class NvimWindow(object):
 
     def __init__(self):
         self._window = None
+        self._prev_window = None
 
-    def create(self):
-        # remember current to focus it back
-        current = nvim().current.window
-        # create a split
-        nvim().command('split')
-        self.window = nvim().current.window
-        # focus back
-        nvim().current.window = current
+    def open(self):
+        if not self.valid:
+            # remember current to focus it back
+            current = nvim().current.window
+            # create a split
+            nvim().command('split')
+            self.window = nvim().current.window
+            # focus back
+            nvim().current.window = current
+
+    def close(self):
+        if self.valid:
+            self.focus()
+            nvim().command('close')
+            self.unfocus()
+            self.window = None
 
     def focus(self):
-        nvim().current.window = self.window
+        if self.valid:
+            self._prev_window = nvim().current.window
+            nvim().current.window = self.window
+
+    def unfocus(self):
+        if self._prev_window and self._prev_window.valid:
+            nvim().current.window = self._prev_window
+        self._prev_window = None
 
     @property
     def window(self):
@@ -130,6 +148,23 @@ class NvimWindow(object):
     @window.setter
     def window(self, value):
         self._window = value
+
+    @property
+    def valid(self):
+        if self.window and self.window.valid:
+            return True
+        return False
+
+
+class NvimSourceWindow(NvimWindow):
+    ''' '''
+
+    def set_source(self, filename, line):
+        if self.valid:
+            self.focus()
+            nvim().command('edit! +' + str(line) + ' ' + filename)
+            nvim().command('sign place 5000 name=GdbCurrentLine line=' + str(line) + ' file=' + filename)
+            self.unfocus()
 
 
 # --------------------------------------------------------------------------------------------------
