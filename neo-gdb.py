@@ -1,7 +1,7 @@
 import os
 import neovim
 
-# Common decorators ------------------------------------------------------------
+# Common methods -----------------------------------------------------------------------------------
 
 
 class memorize(dict):
@@ -17,6 +17,13 @@ class memorize(dict):
         return result
 
 
+def suppress_module(name):
+    try:
+        del globals()[name]
+    except NameError:
+        pass
+
+
 @memorize
 def nvim():
     # check if we run from withing of nvim if true we want to debug using nvim
@@ -26,7 +33,7 @@ def nvim():
     return None
 
 
-# Module definition ------------------------------------------------------------
+# Module definition --------------------------------------------------------------------------------
 
 
 class NvimModule(gdb.Command):
@@ -42,15 +49,15 @@ class NvimModule(gdb.Command):
     def __init__(self):
         self.file_name = None
         self.ts = None
+        self.code_window = NvimWindow()
 
-        # remember the gdb_buffer
+        # TODO: is it required?
+        self.gdb_window = NvimWindow()
         self.gdb_window = nvim().current.window
+        # TODO: is it required?
         self.gdb_buffer = nvim().current.buffer
-        # create a split for code
-        nvim().command('split')
-        self.code_window = nvim().current.window
-        # get focus back on gdb
-        nvim().current.window = self.gdb_window
+
+        self.code_window.create()
 
         gdb.Command.__init__(self, 'nvim',
                              gdb.COMMAND_USER, gdb.COMPLETE_NONE, True)
@@ -85,7 +92,7 @@ class NvimModule(gdb.Command):
             self.ts = ts
 
         current_window = nvim().current.window
-        nvim().current.window = self.code_window
+        self.code_window.focus()
         nvim().command('edit! +' + str(current_line) + ' ' + self.file_name)
         nvim().current.window = current_window
         nvim().command('sign place 5000 name=GdbCurrentLine line=' + str(current_line) + ' file=' + self.file_name)
@@ -98,27 +105,34 @@ class NvimModule(gdb.Command):
         nvim().command('sign define GdbBreakpoint text=●')
 
 
-# Common methods --------------------------------------------------------------
+class NvimWindow(object):
+    ''' Abstraction of a window inside Nvim '''
+
+    def __init__(self):
+        self._window = None
+
+    def create(self):
+        # remember current to focus it back
+        current = nvim().current.window
+        # create a split
+        nvim().command('split')
+        self.window = nvim().current.window
+        # focus back
+        nvim().current.window = current
+
+    def focus(self):
+        nvim().current.window = self.window
+
+    @property
+    def window(self):
+        return self._window
+
+    @window.setter
+    def window(self, value):
+        self._window = value
 
 
-def suppress_module(name):
-    try:
-        del globals()[name]
-    except NameError:
-        pass
-
-
-# Initialize ---------------------------------------------------------------------------------------
-
-
-if nvim():
-    o = NvimModule()
-    # allow usage with Dashboard script!
-    if 'Dashboard' in globals():
-        suppress_module('Source')
-
-
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 # Author:
 #  Copyright (c) 2016 Andrzej Pacanowski <andrzej.pacanowski@gmail.com>
 # With inspiration of gdb-dashboard
