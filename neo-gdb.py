@@ -51,12 +51,7 @@ class NvimModule(gdb.Command):
         self.file_name = None
         self.ts = None
         self.code_window = NvimSourceWindow()
-        self.gdb_window = NvimWindow()
-
-        # TODO: is it required?
-        self.gdb_window = nvim().current.window
-        # TODO: is it required?
-        self.gdb_buffer = nvim().current.buffer
+        self.gdb_window = NvimGdbWindow(nvim().current.window, nvim().current.buffer)
 
         # init gdb part
         gdb.Command.__init__(self, 'nvim',
@@ -76,6 +71,8 @@ class NvimModule(gdb.Command):
         if not self.started:
             self.started = True
             self.code_window.open()
+            self.gdb_window.update_properties()
+            self.code_window.update_properties()
 
         # use shorter form
         nvim().command('sign unplace 5000')
@@ -113,6 +110,7 @@ class NvimWindow(object):
     def __init__(self):
         self._window = None
         self._prev_window = None
+        self.height = None
 
     def open(self):
         if not self.valid:
@@ -121,6 +119,8 @@ class NvimWindow(object):
             # create a split
             nvim().command('split')
             self.window = nvim().current.window
+            if self.height:
+                self.window.height = self.height
             # focus back
             nvim().current.window = current
 
@@ -155,9 +155,17 @@ class NvimWindow(object):
             return True
         return False
 
+    def update_properties(self):
+        if self.valid:
+            if self.height:
+                self.window.height = self.height
+
 
 class NvimSourceWindow(NvimWindow):
     ''' '''
+
+    def __init__(self):
+        super().__init__()
 
     def set_source(self, filename, line):
         if self.valid:
@@ -165,6 +173,15 @@ class NvimSourceWindow(NvimWindow):
             nvim().command('edit! +' + str(line) + ' ' + filename)
             nvim().command('sign place 5000 name=GdbCurrentLine line=' + str(line) + ' file=' + filename)
             self.unfocus()
+
+
+class NvimGdbWindow(NvimWindow):
+
+    def __init__(self, nvim_window, nvim_buffer):
+        super().__init__()
+        self.window = nvim_window
+        self.buffer = nvim_buffer
+        self.height = 20
 
 
 # --------------------------------------------------------------------------------------------------
