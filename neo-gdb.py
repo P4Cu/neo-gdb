@@ -50,8 +50,7 @@ class NvimModule(gdb.Command):
         self.started = False
         self.file_name = None
         self.ts = None
-        self.code_window = NvimSourceWindow()
-        self.gdb_window = NvimGdbWindow(nvim().current.window, nvim().current.buffer)
+        self.layout = NvimLayout()
 
         # init gdb part
         gdb.Command.__init__(self, 'nvim',
@@ -70,9 +69,7 @@ class NvimModule(gdb.Command):
 
         if not self.started:
             self.started = True
-            self.code_window.open()
-            self.gdb_window.update_properties()
-            self.code_window.update_properties()
+            self.layout.create()
 
         # use shorter form
         nvim().command('sign unplace 5000')
@@ -92,12 +89,12 @@ class NvimModule(gdb.Command):
             self.file_name = file_name
             self.ts = ts
 
-        self.code_window.set_source(file_name, current_line)
+        self.layout.source.set_source(file_name, current_line)
 
     def on_exit(self, _):
         print('on_exit')
-        self.code_window.close()
         self.started = False
+        self.layout.close_all_support_window()
 
     def define_symbols(self):
         nvim().command('sign define GdbCurrentLine text=⇒')
@@ -110,7 +107,6 @@ class NvimWindow(object):
     def __init__(self):
         self._window = None
         self._prev_window = None
-        self.height = None
 
     def open(self):
         if not self.valid:
@@ -119,8 +115,6 @@ class NvimWindow(object):
             # create a split
             nvim().command('split')
             self.window = nvim().current.window
-            if self.height:
-                self.window.height = self.height
             # focus back
             nvim().current.window = current
 
@@ -155,11 +149,6 @@ class NvimWindow(object):
             return True
         return False
 
-    def update_properties(self):
-        if self.valid:
-            if self.height:
-                self.window.height = self.height
-
 
 class NvimSourceWindow(NvimWindow):
     ''' '''
@@ -181,7 +170,60 @@ class NvimGdbWindow(NvimWindow):
         super().__init__()
         self.window = nvim_window
         self.buffer = nvim_buffer
-        self.height = 20
+
+
+class NvimBreakpointsWindow(NvimWindow):
+
+    def __init__(self):
+        super().__init__()
+
+
+class NvimLayout(object):
+
+    # first window is always GDB
+    layout = [('stack', 'rightbelow vsplit STACK'),
+              ('breakpoints', 'rightbelow vsplit BREAKPOINTS'),
+              ('source', 'botright 40split CODE'),
+              ('locals', 'rightbelow 80vsplit LOCALS')]
+
+    def __init__(self):
+        self.all_windows = []
+        self.gdb = NvimGdbWindow(nvim().current.window, nvim().current.buffer)
+        self.source = NvimSourceWindow()
+        self.stack = NvimWindow()
+        self.breakpoints = NvimBreakpointsWindow()
+        self.locals = NvimWindow()
+
+    def create(self):
+        if not self._check_if_only_window_on_tab():
+            # create a tab
+            nvim().command('tabnew')
+            nvim().current.buffer = self.gdb.buffer
+            self.gdb.window = nvim().current.window
+        for name, cmd in NvimLayout.layout:
+            nvim().command(cmd)
+            nvim().command('setlocal buftype=nofile | setlocal bufhidden=hide |'
+                           ' setlocal noswapfile | setlocal nobuflisted')
+            # recognize window
+            obj = self._win_to_obj(name)
+            obj.window = nvim().current.window
+            self.all_windows.append(obj)
+        # focus back gdb
+
+    def _check_if_only_window_on_tab(self):
+        return 1 == nvim().eval('winnr(\'$\')')
+
+    def _win_to_obj(self, name):
+        return {'source': self.source,
+                'stack': self.stack,
+                'breakpoints': self.breakpoints,
+                'locals': self.locals
+                }[name]
+
+    def close_all_support_window(self):
+        for win in self.all_windows:
+            win.close()
+        self.all_windows = []
 
 
 # --------------------------------------------------------------------------------------------------
