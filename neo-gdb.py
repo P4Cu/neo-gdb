@@ -91,6 +91,8 @@ class NvimModule(gdb.Command):
 
         self.layout.source.set_source(file_name, current_line)
 
+        self.layout.stack.lines()
+
     def on_exit(self, _):
         print('on_exit')
         self.started = False
@@ -172,11 +174,147 @@ class NvimGdbWindow(NvimWindow):
         self.buffer = nvim_buffer
 
 
-class NvimBreakpointsWindow(NvimWindow):
+def format_address(address):
+    pointer_size = gdb.parse_and_eval('$pc').type.sizeof
+    return ('0x{{:0{}x}}').format(pointer_size * 2).format(address)
+
+def to_unsigned(value, size=8):
+    # values from GDB can be used transparently but are not suitable for
+    # being printed as unsigned integers, so a conversion is needed
+    return int(value.cast(gdb.Value(0).type)) % (2 ** (size * 8))
+
+def to_string(value):
+    # attempt to convert an inferior value to string; OK when (Python 3 ||
+    # simple ASCII); otherwise (Python 2.7 && not ASCII) encode the string as
+    # utf8
+    try:
+        value_string = str(value)
+    except UnicodeEncodeError:
+        value_string = unicode(value).encode('utf8')
+    return value_string
+
+
+class NvimStackWindow(NvimWindow):
 
     def __init__(self):
         super().__init__()
 
+    def lines(self):
+        frames = []
+        number = 0
+        selected_index = 0
+        frame = gdb.newest_frame()
+        while frame:
+            frame_lines = []
+            # fetch frame info
+            selected = (frame == gdb.selected_frame())
+            if selected:
+                selected_index = number
+            frame_id = str(number)
+            info = NvimStackWindow.get_pc_line(frame)
+            frame_lines.append('[{}] {}'.format(frame_id, info))
+            # fetch frame arguments and locals
+            decorator = gdb.FrameDecorator.FrameDecorator(frame)
+            if True: # self.show_arguments
+                frame_args = decorator.frame_args()
+                args_lines = self.fetch_frame_info(frame, frame_args, 'arg')
+                if args_lines:
+                    frame_lines.extend(args_lines)
+                else:
+                    frame_lines.append('(no arguments)')
+            if True: # self.show_locals
+                frame_locals = decorator.frame_locals()
+                locals_lines = self.fetch_frame_info(frame, frame_locals, 'loc')
+                if locals_lines:
+                    res = []
+                    for line in locals_lines:
+                        res.extend(line.split('\n'))
+                    frame_lines.extend(res)
+                else:
+                    frame_lines.append('(no locals)')
+            # add frame
+            frames.append(frame_lines)
+            # next
+            frame = frame.older()
+            number += 1
+        # format the output
+        # if not self.limit or self.limit >= len(frames):
+        if True:
+            start = 0
+            end = len(frames)
+            more = False
+        else:
+            start = selected_index
+            end = min(len(frames), start + self.limit)
+            more = (len(frames) - start > self.limit)
+        lines = []
+        # print("frame_lines", frame_lines)
+        # print("lines", lines)
+        for frame_lines in frames[start:end]:
+            lines.extend(frame_lines)
+        # add the placeholder
+        if more:
+            lines.append('[{}]'.format('+'))
+
+        # TODO: make that on buffer!
+        self.focus()
+        nvim().current.buffer[:] = lines
+        self.unfocus()
+        return lines
+
+    def fetch_frame_info(self, frame, data, prefix):
+        lines = []
+        for elem in data or []:
+            name = elem.sym
+            value = to_string(elem.sym.value(frame))
+            lines.append('{} {} = {}'.format(prefix, name, value))
+        return lines
+
+    @staticmethod
+    def get_pc_line(frame):
+        frame_pc = format_address(frame.pc())
+        info = 'from {}'.format(frame_pc)
+        if frame.name():
+            frame_name = frame.name()
+            try:
+                # try to compute the offset relative to the current function
+                value = gdb.parse_and_eval(frame.name()).address
+                # it can be None even if it is part of the "stack" (C++)
+                if value:
+                    func_start = to_unsigned(value)
+                    offset = frame.pc() - func_start
+                    frame_name += '+' + str(offset)
+            except gdb.error:
+                pass  # e.g., @plt
+            info += ' in {}'.format(frame_name)
+            sal = frame.find_sal()
+            if sal.symtab:
+                file_name = sal.symtab.filename
+                file_line = str(sal.line)
+                info += ' at {}:{}'.format(file_name, file_line)
+        return info
+
+    def attributes(self):
+        return {
+            'limit': {
+                'doc': 'Maximum number of displayed frames (0 means no limit).',
+                'default': 2,
+                'type': int,
+                'check': check_ge_zero
+            },
+            'arguments': {
+                'doc': 'Frame arguments visibility flag.',
+                'default': True,
+                'name': 'show_arguments',
+                'type': bool
+            },
+            'locals': {
+                'doc': 'Frame locals visibility flag.',
+                'default': False,
+                'name': 'show_locals',
+                'type': bool
+            }
+        }
 
 class NvimLayout(object):
 
@@ -190,8 +328,8 @@ class NvimLayout(object):
         self.all_windows = []
         self.gdb = NvimGdbWindow(nvim().current.window, nvim().current.buffer)
         self.source = NvimSourceWindow()
-        self.stack = NvimWindow()
-        self.breakpoints = NvimBreakpointsWindow()
+        self.stack = NvimStackWindow()
+        self.breakpoints = NvimWindow()
         self.locals = NvimWindow()
 
     def create(self):
@@ -208,7 +346,7 @@ class NvimLayout(object):
             obj = self._win_to_obj(name)
             obj.window = nvim().current.window
             self.all_windows.append(obj)
-        # focus back gdb
+        self.gdb.focus()
 
     def _check_if_only_window_on_tab(self):
         return 1 == nvim().eval('winnr(\'$\')')
