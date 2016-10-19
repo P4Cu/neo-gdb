@@ -92,6 +92,7 @@ class NvimModule(gdb.Command):
         self.layout.source.set_source(file_name, current_line)
 
         self.layout.stack.lines()
+        self.layout.locals.lines()
 
     def on_exit(self, _):
         print('on_exit')
@@ -178,10 +179,12 @@ def format_address(address):
     pointer_size = gdb.parse_and_eval('$pc').type.sizeof
     return ('0x{{:0{}x}}').format(pointer_size * 2).format(address)
 
+
 def to_unsigned(value, size=8):
     # values from GDB can be used transparently but are not suitable for
     # being printed as unsigned integers, so a conversion is needed
     return int(value.cast(gdb.Value(0).type)) % (2 ** (size * 8))
+
 
 def to_string(value):
     # attempt to convert an inferior value to string; OK when (Python 3 ||
@@ -215,23 +218,13 @@ class NvimStackWindow(NvimWindow):
             frame_lines.append('[{}] {}'.format(frame_id, info))
             # fetch frame arguments and locals
             decorator = gdb.FrameDecorator.FrameDecorator(frame)
-            if True: # self.show_arguments
+            if True:  # self.show_arguments
                 frame_args = decorator.frame_args()
                 args_lines = self.fetch_frame_info(frame, frame_args, 'arg')
                 if args_lines:
                     frame_lines.extend(args_lines)
                 else:
                     frame_lines.append('(no arguments)')
-            if True: # self.show_locals
-                frame_locals = decorator.frame_locals()
-                locals_lines = self.fetch_frame_info(frame, frame_locals, 'loc')
-                if locals_lines:
-                    res = []
-                    for line in locals_lines:
-                        res.extend(line.split('\n'))
-                    frame_lines.extend(res)
-                else:
-                    frame_lines.append('(no locals)')
             # add frame
             frames.append(frame_lines)
             # next
@@ -294,27 +287,48 @@ class NvimStackWindow(NvimWindow):
                 info += ' at {}:{}'.format(file_name, file_line)
         return info
 
-    def attributes(self):
-        return {
-            'limit': {
-                'doc': 'Maximum number of displayed frames (0 means no limit).',
-                'default': 2,
-                'type': int,
-                'check': check_ge_zero
-            },
-            'arguments': {
-                'doc': 'Frame arguments visibility flag.',
-                'default': True,
-                'name': 'show_arguments',
-                'type': bool
-            },
-            'locals': {
-                'doc': 'Frame locals visibility flag.',
-                'default': False,
-                'name': 'show_locals',
-                'type': bool
-            }
-        }
+
+class NvimLocalsWindow(NvimWindow):
+
+    def __init__(self):
+        super().__init__()
+
+    def lines(self):
+        frames = []
+        frame = gdb.selected_frame()
+        if frame:
+            frame_lines = []
+            # fetch frame arguments and locals
+            decorator = gdb.FrameDecorator.FrameDecorator(frame)
+            frame_locals = decorator.frame_locals()
+            locals_lines = self.fetch_frame_info(frame, frame_locals, 'loc')
+            if locals_lines:
+                res = []
+                for line in locals_lines:
+                    res.extend(line.split('\n'))
+                frame_lines.extend(res)
+            else:
+                frame_lines.append('(no locals)')
+            # add frame
+            frames.append(frame_lines)
+        # format the output
+        lines = []
+        for frame_lines in frames:
+            lines.extend(frame_lines)
+
+        # TODO: make that on buffer!
+        self.focus()
+        nvim().current.buffer[:] = lines
+        self.unfocus()
+
+    def fetch_frame_info(self, frame, data, prefix):
+        lines = []
+        for elem in data or []:
+            name = elem.sym
+            value = to_string(elem.sym.value(frame))
+            lines.append('{} {} = {}'.format(prefix, name, value))
+        return lines
+
 
 class NvimLayout(object):
 
@@ -330,7 +344,7 @@ class NvimLayout(object):
         self.source = NvimSourceWindow()
         self.stack = NvimStackWindow()
         self.breakpoints = NvimWindow()
-        self.locals = NvimWindow()
+        self.locals = NvimLocalsWindow()
 
     def create(self):
         if not self._check_if_only_window_on_tab():
