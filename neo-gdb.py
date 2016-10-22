@@ -109,6 +109,7 @@ class NvimWindow(object):
 
     def __init__(self):
         self._window = None
+        self._buffer = None
         self._prev_window = None
 
     def open(self):
@@ -118,6 +119,7 @@ class NvimWindow(object):
             # create a split
             nvim().command('split')
             self.window = nvim().current.window
+            self._buffer = nvim().current.buffer
             # focus back
             nvim().current.window = current
 
@@ -145,6 +147,14 @@ class NvimWindow(object):
     @window.setter
     def window(self, value):
         self._window = value
+
+    @property
+    def buffer(self):
+        return self._buffer
+
+    @buffer.setter
+    def buffer(self, value):
+        self._buffer = value
 
     @property
     def valid(self):
@@ -214,10 +224,7 @@ class NvimStackWindow(NvimWindow):
             # next
             frame = frame.older()
             number += 1
-        # TODO: make that on buffer!
-        self.focus()
-        nvim().current.buffer[:] = lines
-        self.unfocus()
+        self.buffer[:] = lines
 
     @staticmethod
     def get_pc_line(frame):
@@ -274,10 +281,7 @@ class NvimLocalsWindow(NvimWindow):
                 lines.extend(res)
             else:
                 lines.append('(no locals)')
-        # TODO: make that on buffer!
-        self.focus()
-        nvim().current.buffer[:] = lines
-        self.unfocus()
+        self.buffer[:] = lines
 
     def fetch_frame_info(self, frame, data, prefix):
         lines = []
@@ -317,6 +321,7 @@ class NvimLayout(object):
             # recognize window
             obj = self._win_to_obj(name)
             obj.window = nvim().current.window
+            obj.buffer = nvim().current.buffer
             self.all_windows.append(obj)
         self.gdb.focus()
 
