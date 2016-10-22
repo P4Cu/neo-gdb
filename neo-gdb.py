@@ -203,65 +203,21 @@ class NvimStackWindow(NvimWindow):
         super().__init__()
 
     def lines(self):
-        frames = []
+        lines = []
         number = 0
-        selected_index = 0
         frame = gdb.newest_frame()
         while frame:
-            frame_lines = []
-            # fetch frame info
-            selected = (frame == gdb.selected_frame())
-            if selected:
-                selected_index = number
+            # selected = (frame == gdb.selected_frame())
             frame_id = str(number)
             info = NvimStackWindow.get_pc_line(frame)
-            frame_lines.append('[{}] {}'.format(frame_id, info))
-            # fetch frame arguments and locals
-            decorator = gdb.FrameDecorator.FrameDecorator(frame)
-            if True:  # self.show_arguments
-                frame_args = decorator.frame_args()
-                args_lines = self.fetch_frame_info(frame, frame_args, 'arg')
-                if args_lines:
-                    frame_lines.extend(args_lines)
-                else:
-                    frame_lines.append('(no arguments)')
-            # add frame
-            frames.append(frame_lines)
+            lines.append('[{}] {}'.format(frame_id, info))
             # next
             frame = frame.older()
             number += 1
-        # format the output
-        # if not self.limit or self.limit >= len(frames):
-        if True:
-            start = 0
-            end = len(frames)
-            more = False
-        else:
-            start = selected_index
-            end = min(len(frames), start + self.limit)
-            more = (len(frames) - start > self.limit)
-        lines = []
-        # print("frame_lines", frame_lines)
-        # print("lines", lines)
-        for frame_lines in frames[start:end]:
-            lines.extend(frame_lines)
-        # add the placeholder
-        if more:
-            lines.append('[{}]'.format('+'))
-
         # TODO: make that on buffer!
         self.focus()
         nvim().current.buffer[:] = lines
         self.unfocus()
-        return lines
-
-    def fetch_frame_info(self, frame, data, prefix):
-        lines = []
-        for elem in data or []:
-            name = elem.sym
-            value = to_string(elem.sym.value(frame))
-            lines.append('{} {} = {}'.format(prefix, name, value))
-        return lines
 
     @staticmethod
     def get_pc_line(frame):
@@ -294,28 +250,30 @@ class NvimLocalsWindow(NvimWindow):
         super().__init__()
 
     def lines(self):
+        lines = []
         frames = []
         frame = gdb.selected_frame()
         if frame:
-            frame_lines = []
+            lines = ['============Arguments===========']
             # fetch frame arguments and locals
             decorator = gdb.FrameDecorator.FrameDecorator(frame)
+            # arguments
+            frame_args = decorator.frame_args()
+            args_lines = self.fetch_frame_info(frame, frame_args, 'arg')
+            if args_lines:
+                lines.extend(args_lines)
+            else:
+                lines.append('(no arguments)')
+            # Locals
             frame_locals = decorator.frame_locals()
             locals_lines = self.fetch_frame_info(frame, frame_locals, 'loc')
             if locals_lines:
-                res = []
+                res = ['=============Locals=============']
                 for line in locals_lines:
                     res.extend(line.split('\n'))
-                frame_lines.extend(res)
+                lines.extend(res)
             else:
-                frame_lines.append('(no locals)')
-            # add frame
-            frames.append(frame_lines)
-        # format the output
-        lines = []
-        for frame_lines in frames:
-            lines.extend(frame_lines)
-
+                lines.append('(no locals)')
         # TODO: make that on buffer!
         self.focus()
         nvim().current.buffer[:] = lines
