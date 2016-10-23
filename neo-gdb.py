@@ -112,17 +112,6 @@ class NvimWindow(object):
         self._buffer = None
         self._prev_window = None
 
-    def open(self):
-        if not self.valid:
-            # remember current to focus it back
-            current = nvim().current.window
-            # create a split
-            nvim().command('split')
-            self.window = nvim().current.window
-            self._buffer = nvim().current.buffer
-            # focus back
-            nvim().current.window = current
-
     def close(self):
         if self.valid:
             self.focus()
