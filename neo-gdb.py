@@ -58,6 +58,9 @@ class NvimModule(gdb.Command):
         gdb.events.cont.connect(self.on_continue)
         gdb.events.stop.connect(self.on_stop)
         gdb.events.exited.connect(self.on_exit)
+        gdb.events.breakpoint_created.connect(self.layout.breakpoints.on_created)
+        gdb.events.breakpoint_modified.connect(self.layout.breakpoints.on_modified)
+        gdb.events.breakpoint_deleted.connect(self.layout.breakpoints.on_deleted)
 
         self.define_symbols()
 
@@ -281,6 +284,18 @@ class NvimLocalsWindow(NvimWindow):
         return lines
 
 
+class NvimBreakpointsWindow(NvimWindow):
+
+    def on_created(self, _):
+        print('on_created')
+
+    def on_modified(self, _):
+        print('on_modified')
+
+    def on_deleted(self, _):
+        print('on_deleted')
+
+
 class NvimLayout(object):
 
     # first window is always GDB
@@ -294,7 +309,7 @@ class NvimLayout(object):
         self.gdb = NvimGdbWindow(nvim().current.window, nvim().current.buffer)
         self.source = NvimSourceWindow()
         self.stack = NvimStackWindow()
-        self.breakpoints = NvimWindow()
+        self.breakpoints = NvimBreakpointsWindow()
         self.locals = NvimLocalsWindow()
 
     def create(self):
