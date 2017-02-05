@@ -285,15 +285,31 @@ class NvimLocalsWindow(NvimWindow):
 
 
 class NvimBreakpointsWindow(NvimWindow):
+    def update_breakpoints(self, current=None):
+        lines = []
+        breakpoints = gdb.breakpoints()
+        for bp in breakpoints:
+            if bp is current:
+                lines.append('[[{}]] {}'.format(bp.number, bp.location))
+            else:
+                lines.append('[{}] {}'.format(bp.number, bp.location))
+        if self.buffer is not None:
+            self.buffer[:] = lines
 
     def on_created(self, _):
         print('on_created')
+        self.update_breakpoints()
 
-    def on_modified(self, _):
-        print('on_modified')
+    def on_modified(self, bp):
+        if bp is not None:
+            print('on_modified ', bp)
+        else:
+            print('on_modified')
+        self.update_breakpoints(current=bp)
 
     def on_deleted(self, _):
         print('on_deleted')
+        self.update_breakpoints()
 
 
 class NvimLayout(object):
