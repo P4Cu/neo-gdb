@@ -2,33 +2,22 @@ Neovim + gdb
 
 ## Synopsis
 
-This neovim plugin provides a clean user interface for debugging with GDB.
-At the top of the file there should be a short introduction and/ or overview that explains **what** the project is. This description should match descriptions added for package managers (Gemspec, package.json, etc.)
-
-## Code Example
-
-Show what the library does as concisely as possible, developers should be able to figure out **how** your project solves their problem by looking at the code example. Make sure the API you are showing off is obvious, and that your code is short and concise.
+This [neovim](https://github.com/neovim/neovim) plugin provides a clean user interface for debugging with GDB.
 
 ## Motivation
 
-A short description of the motivation behind the creation and maintenance of the project. This should explain **why** the project exists.
+This plugin has been written after seeing that there's no good and **easy** gdb frontend for neovim. There's no support for vim and there won't be as this plugin uses neovim specific API.
 
 ## Installation
 
-Provide code examples and explanations of how to get the project.
+To automatically link this script to .gdbinit try running install.sh
+**TODO: extend it**
 
-## API Reference
+## Developing
 
-Depending on the size of the project, if it is small and simple enough the reference docs can be added to the README. For medium size to larger projects it is important to at least provide a link to where the API reference docs live.
-
-## Tests
-
-Describe and show how to run the tests with code examples.
-
-## Contributors
-
-Let people know how they can dive into the project, include important links to things like issue trackers, irc, twitter accounts if applicable.
+* https://github.com/neovim/python-client/
+* https://sourceware.org/gdb/onlinedocs/gdb/
 
 ## License
 
-A short snippet describing the license (MIT, Apache, etc.)
+**TODO**
