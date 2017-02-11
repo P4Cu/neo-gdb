@@ -15,8 +15,7 @@ To automatically link this script to .gdbinit try running install.sh
 
 ## Developing
 
-* https://github.com/neovim/python-client/
-* https://sourceware.org/gdb/onlinedocs/gdb/
+[development wiki-page](https://github.com/P4Cu/neo-gdb/wiki/Development)
 
 ## License
 
