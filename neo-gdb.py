@@ -2,7 +2,7 @@ import os
 import neovim
 import threading
 
-# Common methods -----------------------------------------------------------------------------------
+# Common methods ---------------------------------------------------------
 
 
 class memorize(dict):
@@ -33,6 +33,7 @@ def nvim():
         return neovim.attach('socket', path=address)
     return None
 
+
 def gdb_call_into_nvim_mainloop(fn, finalize_with=None):
     """
     Decorator to half sync / half async where the calling thread is the GDB thread and the
@@ -42,11 +43,13 @@ def gdb_call_into_nvim_mainloop(fn, finalize_with=None):
              released.
     """
     cv = threading.Condition()
+
     def gdb_thread_call(*args, **kwargs):
         """
         This will be called on main thread.
         """
         cv.acquire()
+
         def nvim_thread_call(*args, **kwargs):
             """
             This will be called on Nvim thread.
@@ -64,7 +67,7 @@ def gdb_call_into_nvim_mainloop(fn, finalize_with=None):
     return gdb_thread_call
 
 
-# Module definition --------------------------------------------------------------------------------
+# Module definition ------------------------------------------------------
 
 
 class NvimModule(gdb.Command):
@@ -93,13 +96,13 @@ class NvimModule(gdb.Command):
         gdb.events.cont.connect(gdb_call_into_nvim_mainloop(self.on_continue))
         gdb.events.stop.connect(gdb_call_into_nvim_mainloop(self.on_stop))
         gdb.events.exited.connect(gdb_call_into_nvim_mainloop(
-                                    self.on_exit, finalize_with=self.remote.stop_loop))
+            self.on_exit, finalize_with=self.remote.stop_loop))
         gdb.events.breakpoint_created.connect(gdb_call_into_nvim_mainloop(
-                                                self.layout.breakpoints.on_created))
+            self.layout.breakpoints.on_created))
         gdb.events.breakpoint_modified.connect(gdb_call_into_nvim_mainloop(
-                                                self.layout.breakpoints.on_modified))
+            self.layout.breakpoints.on_modified))
         gdb.events.breakpoint_deleted.connect(gdb_call_into_nvim_mainloop(
-                                                self.layout.breakpoints.on_deleted))
+            self.layout.breakpoints.on_deleted))
 
     def on_continue(self, _):
         pass
@@ -200,7 +203,11 @@ class NvimSourceWindow(NvimWindow):
         if self.valid:
             self.focus()
             nvim().command('edit! +' + str(line) + ' ' + filename)
-            nvim().command('sign place 5000 name=GdbCurrentLine line=' + str(line) + ' file=' + filename)
+            nvim().command(
+                'sign place 5000 name=GdbCurrentLine line=' +
+                str(line) +
+                ' file=' +
+                filename)
             self.unfocus()
 
 
@@ -325,6 +332,7 @@ class NvimLocalsWindow(NvimWindow):
 
 
 class NvimBreakpointsWindow(NvimWindow):
+
     def update_breakpoints(self, current=None):
         lines = []
         breakpoints = gdb.breakpoints()
@@ -376,8 +384,9 @@ class NvimLayout(object):
             self.gdb.window = nvim().current.window
         for name, cmd in NvimLayout.layout:
             nvim().command(cmd)
-            nvim().command('setlocal buftype=nofile | setlocal bufhidden=hide |'
-                           ' setlocal noswapfile | setlocal nobuflisted')
+            nvim().command(
+                'setlocal buftype=nofile | setlocal bufhidden=hide |'
+                ' setlocal noswapfile | setlocal nobuflisted')
             # recognize window
             obj = self._win_to_obj(name)
             obj.window = nvim().current.window
@@ -408,8 +417,11 @@ class NvimRemote(object):
     There's not need to synchronize resources as python GIL (Global Interpreter Lock) won't allow
      two threads to run concurrently.
     """
+
     def __init__(self):
-        self.thread = threading.Thread(target=self._mainloop, name='neogdb_nvim_receiver')
+        self.thread = threading.Thread(
+            target=self._mainloop,
+            name='neogdb_nvim_receiver')
 
     def start_loop(self):
         """
@@ -425,9 +437,10 @@ class NvimRemote(object):
         This will shutdown the thread properly.
         """
         print("Stop receiver")
+
         def stop_loop_impl():
             """
-            We have to call it from the mainloop thread. Easiest way is to do that via 
+            We have to call it from the mainloop thread. Easiest way is to do that via
              neovim async_call method.
             """
             print("stop_loop_impl started")
