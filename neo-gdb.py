@@ -1,6 +1,12 @@
 import os
+import sys
 import neovim
 import threading
+import logging
+from logging import info, warning, error
+
+logging.getLogger('').handlers = []
+logging.basicConfig(level=logging.INFO, filename='/tmp/neo-gdb.log', filemode='w')
 
 # Common methods ---------------------------------------------------------
 
@@ -16,13 +22,6 @@ class memorize(dict):
     def __missing__(self, key):
         result = self[key] = self.func(*key)
         return result
-
-
-def suppress_module(name):
-    try:
-        del globals()[name]
-    except NameError:
-        pass
 
 
 @memorize
@@ -76,9 +75,6 @@ class NvimModule(gdb.Command):
     def start():
         if nvim():
             o = NvimModule()
-            # allow usage with Dashboard script!
-            if 'Dashboard' in globals():
-                suppress_module('Source')
 
     def __init__(self):
         self.started = False
@@ -327,7 +323,7 @@ class NvimLocalsWindow(NvimWindow):
         except gdb.MemoryError as e:
             # TODO: this may fail as argument are kept on stack and something happens there
             #  see http://stackoverflow.com/a/31317730/4296448
-            print('Fetch frame failed:', e)
+            error('Fetch frame failed: %s', e)
         return lines
 
 
@@ -345,18 +341,18 @@ class NvimBreakpointsWindow(NvimWindow):
             self.buffer[:] = lines
 
     def on_created(self, _):
-        print('on_created')
+        info('on_created')
         self.update_breakpoints()
 
     def on_modified(self, bp):
         if bp is not None:
-            print('on_modified ', bp)
+            info('on_modified %s', bp)
         else:
-            print('on_modified')
+            info('on_modified')
         self.update_breakpoints(current=bp)
 
     def on_deleted(self, _):
-        print('on_deleted')
+        info('on_deleted')
         self.update_breakpoints()
 
 
@@ -428,40 +424,40 @@ class NvimRemote(object):
         This will start mainloop in thread.
         """
         if not self.thread.isAlive():
-            print("Starting mainloop")
+            info("Starting mainloop")
             self.thread.start()
-            print("Started mainloop channel_id={}".format(nvim().channel_id))
+            info("Started mainloop channel_id={}".format(nvim().channel_id))
 
     def stop_loop(self):
         """
         This will shutdown the thread properly.
         """
-        print("Stop receiver")
+        info("Stop receiver")
 
         def stop_loop_impl():
             """
             We have to call it from the mainloop thread. Easiest way is to do that via
              neovim async_call method.
             """
-            print("stop_loop_impl started")
+            info("stop_loop_impl started")
             nvim().stop_loop()
-            print("stop_loop_impl finished")
+            info("stop_loop_impl finished")
         if self.thread.isAlive():
             nvim().async_call(stop_loop_impl)
-            print("Join mainloop")
+            info("Join mainloop")
             self.thread.join(5.0)
-            print("Joined mainloop")
+            info("Joined mainloop")
 
     def _mainloop(self):
         def request_cb(name, args):
-            print("Received cb={} with args={}", name, args)
+            info("Received cb={} with args={}".format(name, args))
             if name == "nvim_receiver_stop":
-                print("Stopping loop from request")
+                info("Stopping loop from request")
                 nvim().stop_loop()
-                print("Stopped loop from request")
+                info("Stopped loop from request")
             return None
         nvim().run_loop(request_cb=request_cb, notification_cb=None)
-        print("Loop stopped")
+        info("Loop stopped")
 
 # --------------------------------------------------------------------------------------------------
 # Author:
