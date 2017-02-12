@@ -1,5 +1,6 @@
 import os
 import neovim
+import threading
 
 # Common methods -----------------------------------------------------------------------------------
 
@@ -32,6 +33,36 @@ def nvim():
         return neovim.attach('socket', path=address)
     return None
 
+def gdb_call_into_nvim_mainloop(fn, finalize_with=None):
+    """
+    Decorator to half sync / half async where the calling thread is the GDB thread and the
+     request thread is neovim mainloop thread.
+     @param fn Function to call on nvim thread.
+     @param finalize_with May be used to do something after the function and right before lock is
+             released.
+    """
+    cv = threading.Condition()
+    def gdb_thread_call(*args, **kwargs):
+        """
+        This will be called on main thread.
+        """
+        cv.acquire()
+        def nvim_thread_call(*args, **kwargs):
+            """
+            This will be called on Nvim thread.
+            """
+            cv.acquire()
+            if fn:
+                fn(*args, **kwargs)
+            cv.notify_all()
+            cv.release()
+        nvim().async_call(nvim_thread_call, *args, **kwargs)
+        cv.wait()
+        if finalize_with:
+            finalize_with()
+        cv.release()
+    return gdb_thread_call
+
 
 # Module definition --------------------------------------------------------------------------------
 
@@ -51,27 +82,32 @@ class NvimModule(gdb.Command):
         self.file_name = None
         self.ts = None
         self.layout = NvimLayout()
+        self.remote = NvimRemote()
+        self.remote.start_loop()
 
-        # init gdb part
+        # Init gdb part
+        # All of these will happen in GDB thread so we need to forward it via nvim().async_call
+        #  into our thread.
         gdb.Command.__init__(self, 'nvim',
                              gdb.COMMAND_USER, gdb.COMPLETE_NONE, True)
-        gdb.events.cont.connect(self.on_continue)
-        gdb.events.stop.connect(self.on_stop)
-        gdb.events.exited.connect(self.on_exit)
-        gdb.events.breakpoint_created.connect(self.layout.breakpoints.on_created)
-        gdb.events.breakpoint_modified.connect(self.layout.breakpoints.on_modified)
-        gdb.events.breakpoint_deleted.connect(self.layout.breakpoints.on_deleted)
-
-        self.define_symbols()
+        gdb.events.cont.connect(gdb_call_into_nvim_mainloop(self.on_continue))
+        gdb.events.stop.connect(gdb_call_into_nvim_mainloop(self.on_stop))
+        gdb.events.exited.connect(gdb_call_into_nvim_mainloop(
+                                    self.on_exit, finalize_with=self.remote.stop_loop))
+        gdb.events.breakpoint_created.connect(gdb_call_into_nvim_mainloop(
+                                                self.layout.breakpoints.on_created))
+        gdb.events.breakpoint_modified.connect(gdb_call_into_nvim_mainloop(
+                                                self.layout.breakpoints.on_modified))
+        gdb.events.breakpoint_deleted.connect(gdb_call_into_nvim_mainloop(
+                                                self.layout.breakpoints.on_deleted))
 
     def on_continue(self, _):
-        print('on_continue')
+        pass
 
     def on_stop(self, _):
-        print('on_stop')
-
         if not self.started:
             self.started = True
+            self.define_symbols()
             self.layout.create()
 
         # use shorter form
@@ -98,7 +134,6 @@ class NvimModule(gdb.Command):
         self.layout.locals.lines()
 
     def on_exit(self, _):
-        print('on_exit')
         self.started = False
         self.layout.close_all_support_window()
 
@@ -277,10 +312,15 @@ class NvimLocalsWindow(NvimWindow):
 
     def fetch_frame_info(self, frame, data, prefix):
         lines = []
-        for elem in data or []:
-            name = elem.sym
-            value = to_string(elem.sym.value(frame))
-            lines.append('{} {} = {}'.format(prefix, name, value))
+        try:
+            for elem in data or []:
+                name = elem.sym
+                value = to_string(elem.sym.value(frame))
+                lines.append('{} {} = {}'.format(prefix, name, value))
+        except gdb.MemoryError as e:
+            # TODO: this may fail as argument are kept on stack and something happens there
+            #  see http://stackoverflow.com/a/31317730/4296448
+            print('Fetch frame failed:', e)
         return lines
 
 
@@ -360,6 +400,55 @@ class NvimLayout(object):
             win.close()
         self.all_windows = []
 
+
+class NvimRemote(object):
+    """
+    This object represents a thread that runs nvim RPC main-loop and receives notifications/events
+     from nvim.
+    There's not need to synchronize resources as python GIL (Global Interpreter Lock) won't allow
+     two threads to run concurrently.
+    """
+    def __init__(self):
+        self.thread = threading.Thread(target=self._mainloop, name='neogdb_nvim_receiver')
+
+    def start_loop(self):
+        """
+        This will start mainloop in thread.
+        """
+        if not self.thread.isAlive():
+            print("Starting mainloop")
+            self.thread.start()
+            print("Started mainloop channel_id={}".format(nvim().channel_id))
+
+    def stop_loop(self):
+        """
+        This will shutdown the thread properly.
+        """
+        print("Stop receiver")
+        def stop_loop_impl():
+            """
+            We have to call it from the mainloop thread. Easiest way is to do that via 
+             neovim async_call method.
+            """
+            print("stop_loop_impl started")
+            nvim().stop_loop()
+            print("stop_loop_impl finished")
+        if self.thread.isAlive():
+            nvim().async_call(stop_loop_impl)
+            print("Join mainloop")
+            self.thread.join(5.0)
+            print("Joined mainloop")
+
+    def _mainloop(self):
+        def request_cb(name, args):
+            print("Received cb={} with args={}", name, args)
+            if name == "nvim_receiver_stop":
+                print("Stopping loop from request")
+                nvim().stop_loop()
+                print("Stopped loop from request")
+            return None
+        nvim().run_loop(request_cb=request_cb, notification_cb=None)
+        print("Loop stopped")
 
 # --------------------------------------------------------------------------------------------------
 # Author:
